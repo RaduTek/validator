@@ -122,24 +122,42 @@ class NFCReader:
 
     def _extract_uid(self, target) -> Optional[str]:
         """
-        Extract card UID from nfcpy target object
-
-        Args:
-            target: nfcpy RemoteTarget object from card detection
-
-        Returns:
-            Card UID as hex string, or None if extraction failed
+        Extract card UID. Works with physical cards (Hardware UID)
+        and the Android App (Custom HCE UID).
         """
-        try:
-            # nfcpy provides the UID via the target's attributes
-            # For Type 2 (Mifare Classic), use identifier; for Type 3 use idm
+        # 1. Get the hardware UID (Anti-collision ID)
+        # This will be random for phones (starts with 08) but static for cards.
+        hw_uid = target.sdd_res.hex().upper()
 
-            # Try to get UID from various attributes
-            return target.sdd_res.hex().upper()
+        try:
+            # 2. Try to activate the target to talk to the App
+            tag = nfc.tag.activate(self.clf, target)
+
+            # 3. If it's a phone (Type4Tag), try to select your App by AID
+            if tag and tag.type == "Type4Tag":
+                # AID: F0000000010001 (Must match your Android nfc_tech_filter.xml)
+                # Command: [00 A4 04 00] [07] [AID] [00]
+                select_aid_apdu = bytes.fromhex("00A4040007F000000001000100")
+
+                try:
+                    response = tag.transceive(select_aid_apdu)
+
+                    # 4. Check if response ends with 9000 (Success)
+                    if response and response.endswith(bytes.fromhex("9000")):
+                        # STRIP the last 2 bytes (9000) to get just the UID
+                        custom_uid = response[:-2].hex().upper()
+                        logger.info(f"Android App found! Custom UID: {custom_uid}")
+                        return custom_uid
+                except Exception:
+                    # Not your app, or communication failed
+                    pass
 
         except Exception as e:
-            logger.error(f"Error extracting card UID: {e}")
-            return None
+            # Common for simple cards (Mifare Classic) that don't support Type 4 activation
+            logger.debug(f"HCE check skipped: {e}")
+
+        # 5. Fallback: Return the hardware UID (for physical cards or if app is off)
+        return hw_uid
 
     def is_connected(self) -> bool:
         """
