@@ -3,7 +3,7 @@
 # Script to sync validator files to Raspberry Pi and install/start the service
 
 PI_USER="user"
-PI_HOST="validator"
+PI_HOST="validator.local"
 PI_PASSWORD="validator"
 PI_DEST="/home/user/validator"
 LOCAL_DIR="."
